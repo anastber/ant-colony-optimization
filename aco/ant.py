@@ -51,11 +51,7 @@ class Ant:
         if self.porte_nourriture and self.chemin_retour:
             prochaine_ville = self.chemin_retour.pop(0)
             for route in routes_disponibles:
-                destination = (
-                    route.seconde_ville
-                    if route.premiere_ville == self.ville_actuelle
-                    else route.premiere_ville
-                )
+                destination = route.autre_extremite(self.ville_actuelle)
                 if destination == prochaine_ville:
                     return prochaine_ville, route
             # Si la route n'est pas trouvée (cas rare), continue avec la sélection normale
@@ -64,11 +60,7 @@ class Ant:
         probabilities = []
 
         for route in routes_disponibles:
-            ville_destination = (
-                route.seconde_ville
-                if route.premiere_ville == self.ville_actuelle
-                else route.premiere_ville
-            )
+            ville_destination = route.autre_extremite(self.ville_actuelle)
 
             # Facteur d'exploration (gamma) influençant la sélection des nouvelles routes
             exploration_factor = 1.0

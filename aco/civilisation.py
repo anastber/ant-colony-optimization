@@ -3,7 +3,7 @@
 import copy
 import math
 import random
-from typing import List
+from typing import List, Optional
 
 from .ant import Ant
 from .models import Route, Ville
@@ -34,12 +34,14 @@ class Civilisation:
         self.villes.append(ville)
         return ville
 
+    def trouver_route(self, v1: Ville, v2: Ville) -> Optional[Route]:
+        """Retourne la route reliant v1 et v2, ou None si elle n'existe pas"""
+        return next((route for route in self.routes if route.relie(v1, v2)), None)
+
     def ajouter_route(self, v1: Ville, v2: Ville) -> Route:
-        for route in self.routes:
-            if (route.premiere_ville == v1 and route.seconde_ville == v2) or (
-                route.premiere_ville == v2 and route.seconde_ville == v1
-            ):
-                return route
+        route_existante = self.trouver_route(v1, v2)
+        if route_existante is not None:
+            return route_existante
 
         longueur = math.sqrt((v1.x - v2.x) ** 2 + (v1.y - v2.y) ** 2)
         route = Route(longueur=longueur, premiere_ville=v1, seconde_ville=v2)
@@ -109,11 +111,7 @@ class Civilisation:
                     if fourmi.chemin_retour:
                         prochaine_ville = fourmi.chemin_retour.pop(0)
                         for route in fourmi.ville_actuelle.routes:
-                            destination = (
-                                route.seconde_ville
-                                if route.premiere_ville == fourmi.ville_actuelle
-                                else route.premiere_ville
-                            )
+                            destination = route.autre_extremite(fourmi.ville_actuelle)
                             if destination == prochaine_ville:
                                 fourmi.demarrer_deplacement(prochaine_ville)
                                 break
@@ -153,11 +151,7 @@ class Civilisation:
             if fourmi.chemin_retour:
                 prochaine_ville = fourmi.chemin_retour.pop(0)
                 for route in fourmi.ville_actuelle.routes:
-                    destination = (
-                        route.seconde_ville
-                        if route.premiere_ville == fourmi.ville_actuelle
-                        else route.premiere_ville
-                    )
+                    destination = route.autre_extremite(fourmi.ville_actuelle)
                     if destination == prochaine_ville:
                         fourmi.demarrer_deplacement(prochaine_ville)
                         break
@@ -186,11 +180,7 @@ class Civilisation:
             if fourmi.chemin_retour:
                 prochaine_ville = fourmi.chemin_retour[0]
                 for route in fourmi.ville_actuelle.routes:
-                    destination = (
-                        route.seconde_ville
-                        if route.premiere_ville == fourmi.ville_actuelle
-                        else route.premiere_ville
-                    )
+                    destination = route.autre_extremite(fourmi.ville_actuelle)
                     if destination == prochaine_ville:
                         fourmi.demarrer_deplacement(prochaine_ville)
                         fourmi.chemin_retour.pop(0)
@@ -198,11 +188,7 @@ class Civilisation:
             else:
                 # Si plus de chemin retour mais pas encore au nid, diriger vers le nid
                 for route in fourmi.ville_actuelle.routes:
-                    destination = (
-                        route.seconde_ville
-                        if route.premiere_ville == fourmi.ville_actuelle
-                        else route.premiere_ville
-                    )
+                    destination = route.autre_extremite(fourmi.ville_actuelle)
                     if destination == self.nid:
                         fourmi.demarrer_deplacement(self.nid)
                         return
@@ -406,11 +392,7 @@ class Civilisation:
                         else:
                             # Si c'est la dernière étape avant le nid, se diriger vers le nid
                             for route in fourmi.ville_actuelle.routes:
-                                destination = (
-                                    route.seconde_ville
-                                    if route.premiere_ville == fourmi.ville_actuelle
-                                    else route.premiere_ville
-                                )
+                                destination = route.autre_extremite(fourmi.ville_actuelle)
                                 if destination == self.nid:
                                     fourmi.demarrer_deplacement(self.nid)
                                     break
@@ -480,11 +462,7 @@ class Civilisation:
                 else:
                     # Si plus de villes dans le chemin de retour, diriger vers le nid
                     for route in fourmi.ville_actuelle.routes:
-                        destination = (
-                            route.seconde_ville
-                            if route.premiere_ville == fourmi.ville_actuelle
-                            else route.premiere_ville
-                        )
+                        destination = route.autre_extremite(fourmi.ville_actuelle)
                         if destination == self.nid:
                             fourmi.demarrer_deplacement(self.nid)
                             break
@@ -511,28 +489,14 @@ class Civilisation:
         for chemin, distance in zip(chemins_valides, distances_chemins):
             # Augmenter le dépôt pour les plus courts chemins
             depot = (self.Q / distance) * 1.5  # Facteur de renforcement
-            for i in range(len(chemin) - 1):
-                v1, v2 = chemin[i], chemin[i + 1]
-                for route in self.routes:
-                    if (route.premiere_ville == v1 and route.seconde_ville == v2) or (
-                        route.premiere_ville == v2 and route.seconde_ville == v1
-                    ):
-                        route.pheromone += depot
-                        break
+            self.deposer_pheromone(chemin, depot)
 
         # Renforcement élitiste encore plus fort
         if self.meilleur_chemin:
             depot_elite = (
                 self.Q / self.meilleure_distance
             ) * 2.0  # Renforcement supplémentaire
-            for i in range(len(self.meilleur_chemin) - 1):
-                v1, v2 = self.meilleur_chemin[i], self.meilleur_chemin[i + 1]
-                for route in self.routes:
-                    if (route.premiere_ville == v1 and route.seconde_ville == v2) or (
-                        route.premiere_ville == v2 and route.seconde_ville == v1
-                    ):
-                        route.pheromone += depot_elite
-                        break
+            self.deposer_pheromone(self.meilleur_chemin, depot_elite)
         for fourmi in self.fourmis:
             fourmi.mettre_a_jour_performance()
             # Mettre à jour la meilleure fourmi si nécessaire
@@ -543,6 +507,13 @@ class Civilisation:
                 self.meilleure_fourmi = copy.deepcopy(fourmi)
         return actions_effectuees, self.meilleur_chemin, self.meilleure_distance
 
+    def deposer_pheromone(self, chemin: List[Ville], depot: float):
+        """Dépose `depot` phéromones sur chaque route du chemin"""
+        for v1, v2 in zip(chemin, chemin[1:]):
+            route = self.trouver_route(v1, v2)
+            if route is not None:
+                route.pheromone += depot
+
     def calculer_distance_chemin(self, chemin: List[Ville]) -> float:
         if len(chemin) < 2:
             return float("inf")
@@ -550,15 +521,7 @@ class Civilisation:
         distance = 0
         for i in range(len(chemin) - 1):
             v1, v2 = chemin[i], chemin[i + 1]
-            route = next(
-                (
-                    r
-                    for r in self.routes
-                    if (r.premiere_ville == v1 and r.seconde_ville == v2)
-                    or (r.premiere_ville == v2 and r.seconde_ville == v1)
-                ),
-                None,
-            )
+            route = self.trouver_route(v1, v2)
             if route:
                 distance += route.longueur
             else:

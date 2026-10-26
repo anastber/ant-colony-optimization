@@ -17,6 +17,16 @@ class Route:
         """Simulation de l'évaporation de la phéromone"""
         self.pheromone = max(0.1, (1 - taux_evaporation) * self.pheromone)
 
+    def autre_extremite(self, ville: "Ville") -> Optional["Ville"]:
+        """Retourne la ville située à l'autre bout de la route"""
+        return self.seconde_ville if self.premiere_ville == ville else self.premiere_ville
+
+    def relie(self, v1: "Ville", v2: "Ville") -> bool:
+        """Indique si la route relie v1 et v2 (dans un sens ou dans l'autre)"""
+        return (self.premiere_ville == v1 and self.seconde_ville == v2) or (
+            self.premiere_ville == v2 and self.seconde_ville == v1
+        )
+
 
 @dataclass
 class Ville:
