@@ -41,6 +41,46 @@ class Ant:
         self.en_deplacement = False
         self.progress = 0.0
 
+    def repartir_du_nid(self, nid: Ville):
+        """Replace la fourmi au nid avec un chemin parcouru vierge"""
+        self.initialiser_position(nid)
+        self.chemin_parcouru = [nid]
+
+    def reinitialiser_au_nid(self, nid: Ville):
+        """Replace la fourmi au nid et efface son trajet et sa charge"""
+        self.repartir_du_nid(nid)
+        self.chemin_retour = []
+        self.porte_nourriture = False
+
+    def charger_nourriture(self):
+        """Prend la nourriture et prépare le retour par le chemin inverse"""
+        self.porte_nourriture = True
+        self.chemin_retour = list(reversed(self.chemin_parcouru[1:]))
+
+    def deposer_nourriture(self, nid: Ville):
+        """Dépose la nourriture au nid et prépare un nouveau trajet"""
+        self.qte_nourriture_collectee += 1
+        self.porte_nourriture = False
+        self.chemin_parcouru = [nid]
+        self.chemin_retour = []
+
+    def est_reliee_a(self, ville: Ville) -> bool:
+        """Indique si une route relie la ville actuelle à `ville`"""
+        return any(
+            route.autre_extremite(self.ville_actuelle) == ville
+            for route in self.ville_actuelle.routes
+        )
+
+    def explorer(self) -> bool:
+        """Choisit la prochaine ville et s'y dirige. Retourne False si aucune n'est disponible."""
+        result = self.selectionner_prochaine_ville(self.ville_actuelle.routes)
+        if not result:
+            return False
+        ville, _ = result
+        self.demarrer_deplacement(ville)
+        self.chemin_parcouru.append(ville)
+        return True
+
     def selectionner_prochaine_ville(
         self, routes_disponibles: List[Route]
     ) -> Optional[Tuple[Ville, Route]]:

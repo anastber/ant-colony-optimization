@@ -3,7 +3,7 @@
 import copy
 import math
 import random
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .ant import Ant
 from .models import Route, Ville
@@ -29,6 +29,10 @@ class Civilisation:
             False  # Flag pour indiquer si l'algo génétique a été appliqué
         )
 
+    # ------------------------------------------------------------------
+    # Construction du graphe
+    # ------------------------------------------------------------------
+
     def ajouter_ville(self, x: int, y: int) -> Ville:
         ville = Ville(x, y, len(self.villes))
         self.villes.append(ville)
@@ -50,6 +54,10 @@ class Civilisation:
         v2.routes.append(route)
         return route
 
+    # ------------------------------------------------------------------
+    # Population et algorithme génétique
+    # ------------------------------------------------------------------
+
     def initialiser_fourmis(
         self, nombre_fourmis: int, alpha_base: float, beta_base: float
     ):
@@ -62,8 +70,7 @@ class Civilisation:
             gamma = random.uniform(-2, 2)
 
             fourmi = Ant(alpha=alpha, beta=beta, gamma=gamma)
-            fourmi.initialiser_position(self.nid)
-            fourmi.chemin_parcouru = [self.nid]
+            fourmi.repartir_du_nid(self.nid)
             # Ajouter un délai initial aléatoire pour éviter les départs synchronisés
             fourmi.delai_initial = random.randint(0, 10)
             self.fourmis.append(fourmi)
@@ -79,8 +86,7 @@ class Civilisation:
         # Pour chaque fourmi, faire un certain nombre d'itérations pour évaluer sa performance
         for fourmi in self.fourmis:
             fourmi.reinitialiser_stats()
-            fourmi.initialiser_position(self.nid)
-            fourmi.chemin_parcouru = [self.nid]
+            fourmi.repartir_du_nid(self.nid)
 
             for _ in range(iterations_test):
                 self.evaluer_fourmi(fourmi)
@@ -92,50 +98,25 @@ class Civilisation:
         for fourmi in self.fourmis:
             fourmi.mettre_a_jour_performance()
 
-    def evaluer_fourmi(self, fourmi):
+    def evaluer_fourmi(self, fourmi: Ant):
         """Évalue une fourmi sur une itération"""
-        if fourmi.en_deplacement:
-            if fourmi.mettre_a_jour_position():
-                # Si la fourmi atteint la source de nourriture
-                if (
-                    fourmi.ville_actuelle == self.src_nourriture
-                    and not fourmi.porte_nourriture
-                ):
-                    fourmi.porte_nourriture = True
-                    # Sauvegarder le chemin de retour (dans l'ordre inverse)
-                    fourmi.chemin_retour = [
-                        ville for ville in reversed(fourmi.chemin_parcouru[1:])
-                    ]
+        if fourmi.en_deplacement and fourmi.mettre_a_jour_position():
+            # Si la fourmi atteint la source de nourriture
+            if (
+                fourmi.ville_actuelle == self.src_nourriture
+                and not fourmi.porte_nourriture
+            ):
+                fourmi.charger_nourriture()
+                # Toujours démarrer le chemin de retour immédiatement
+                self._entamer_retour(fourmi)
 
-                    # Toujours démarrer le chemin de retour immédiatement
-                    if fourmi.chemin_retour:
-                        prochaine_ville = fourmi.chemin_retour.pop(0)
-                        for route in fourmi.ville_actuelle.routes:
-                            destination = route.autre_extremite(fourmi.ville_actuelle)
-                            if destination == prochaine_ville:
-                                fourmi.demarrer_deplacement(prochaine_ville)
-                                break
-                    return
-
-                # Si la fourmi revient au nid ET porte de la nourriture
-                elif fourmi.ville_actuelle == self.nid and fourmi.porte_nourriture:
-                    fourmi.qte_nourriture_collectee += 1
-                    fourmi.porte_nourriture = False  # Réinitialiser UNIQUEMENT ici
-
-                    # Réinitialiser la fourmi pour un nouveau voyage
-                    fourmi.initialiser_position(self.nid)
-                    fourmi.chemin_parcouru = [self.nid]
-                    fourmi.chemin_retour = []
-
-                    # Sélectionner immédiatement la prochaine destination
-                    result = fourmi.selectionner_prochaine_ville(
-                        fourmi.ville_actuelle.routes
-                    )
-                    if result:
-                        ville, route = result
-                        fourmi.demarrer_deplacement(ville)
-                        fourmi.chemin_parcouru.append(ville)
-                return
+            # Si la fourmi revient au nid ET porte de la nourriture
+            elif fourmi.ville_actuelle == self.nid and fourmi.porte_nourriture:
+                fourmi.deposer_nourriture(self.nid)
+                fourmi.initialiser_position(self.nid)
+                # Sélectionner immédiatement la prochaine destination
+                fourmi.explorer()
+            return
 
         # Vérifier si une fourmi immobile est à la source de nourriture
         if (
@@ -144,68 +125,41 @@ class Civilisation:
             and not fourmi.porte_nourriture
         ):
             # Forcer la collecte de nourriture et le départ si bloquée à la source
-            fourmi.porte_nourriture = True
-            fourmi.chemin_retour = list(reversed(fourmi.chemin_parcouru[1:]))
-
-            # S'assurer qu'elle démarre le retour
-            if fourmi.chemin_retour:
-                prochaine_ville = fourmi.chemin_retour.pop(0)
-                for route in fourmi.ville_actuelle.routes:
-                    destination = route.autre_extremite(fourmi.ville_actuelle)
-                    if destination == prochaine_ville:
-                        fourmi.demarrer_deplacement(prochaine_ville)
-                        break
+            fourmi.charger_nourriture()
+            self._entamer_retour(fourmi)
             return
 
         # Si porte de la nourriture et en chemin de retour - ne pas reinitialiser porte_nourriture!
         if fourmi.porte_nourriture and not fourmi.en_deplacement:
-            # Si au nid, déposer la nourriture
+            # Si au nid, déposer la nourriture et repartir
             if fourmi.ville_actuelle == self.nid:
-                fourmi.qte_nourriture_collectee += 1
-                fourmi.porte_nourriture = False
-                fourmi.chemin_parcouru = [self.nid]
-                fourmi.chemin_retour = []
-
-                # Sélectionner nouvelle destination
-                result = fourmi.selectionner_prochaine_ville(
-                    fourmi.ville_actuelle.routes
-                )
-                if result:
-                    ville, route = result
-                    fourmi.demarrer_deplacement(ville)
-                    fourmi.chemin_parcouru.append(ville)
+                fourmi.deposer_nourriture(self.nid)
+                fourmi.explorer()
                 return
 
             # Sinon continuer le chemin de retour
             if fourmi.chemin_retour:
                 prochaine_ville = fourmi.chemin_retour[0]
-                for route in fourmi.ville_actuelle.routes:
-                    destination = route.autre_extremite(fourmi.ville_actuelle)
-                    if destination == prochaine_ville:
-                        fourmi.demarrer_deplacement(prochaine_ville)
-                        fourmi.chemin_retour.pop(0)
-                        return
-            else:
-                # Si plus de chemin retour mais pas encore au nid, diriger vers le nid
-                for route in fourmi.ville_actuelle.routes:
-                    destination = route.autre_extremite(fourmi.ville_actuelle)
-                    if destination == self.nid:
-                        fourmi.demarrer_deplacement(self.nid)
-                        return
+                if fourmi.est_reliee_a(prochaine_ville):
+                    fourmi.demarrer_deplacement(prochaine_ville)
+                    fourmi.chemin_retour.pop(0)
+                    return
+            # Si plus de chemin retour mais pas encore au nid, diriger vers le nid
+            elif fourmi.est_reliee_a(self.nid):
+                fourmi.demarrer_deplacement(self.nid)
+                return
 
         # Sélection de la prochaine destination pour l'exploration (uniquement si pas de nourriture)
-        if not fourmi.porte_nourriture:
-            result = fourmi.selectionner_prochaine_ville(fourmi.ville_actuelle.routes)
-            if result:
-                ville, route = result
-                fourmi.demarrer_deplacement(ville)
-                fourmi.chemin_parcouru.append(ville)
-            else:
-                # Si aucune ville n'est disponible, retour au nid
-                fourmi.initialiser_position(self.nid)
-                fourmi.chemin_parcouru = [self.nid]
-                fourmi.chemin_retour = []
-                fourmi.porte_nourriture = False
+        if not fourmi.porte_nourriture and not fourmi.explorer():
+            # Si aucune ville n'est disponible, retour au nid
+            fourmi.reinitialiser_au_nid(self.nid)
+
+    def _entamer_retour(self, fourmi: Ant):
+        """Démarre le retour vers la première ville du chemin retour si elle est reliée"""
+        if fourmi.chemin_retour:
+            prochaine_ville = fourmi.chemin_retour.pop(0)
+            if fourmi.est_reliee_a(prochaine_ville):
+                fourmi.demarrer_deplacement(prochaine_ville)
 
     def mutation(self, fourmi: Ant):
         """Applique une mutation aux paramètres de la fourmi"""
@@ -248,37 +202,14 @@ class Civilisation:
             ):
                 self.meilleure_fourmi = copy.deepcopy(self.fourmis[0])
 
-            # Sélectionner l'élite (20% meilleurs)
+            # Sélectionner l'élite (20% meilleurs) et créer la nouvelle génération
             nb_elite = max(2, len(self.fourmis) // 5)
             elite = self.fourmis[:nb_elite]
-
-            # Créer nouvelle génération
-            nouvelle_generation = []
-
-            # Garder l'élite
-            nouvelle_generation.extend(copy.deepcopy(f) for f in elite)
-
-            # Compléter la population
-            while len(nouvelle_generation) < len(self.fourmis):
-                if random.random() < 0.3:  # 30% chance de croisement
-                    parent1 = random.choice(elite)
-                    parent2 = random.choice(elite)
-                    enfant = self.croisement(parent1, parent2)
-                    if random.random() < 0.1:  # 10% chance de mutation après croisement
-                        self.mutation(enfant)
-                else:  # 70% chance de mutation
-                    modele = random.choice(elite)
-                    enfant = copy.deepcopy(modele)
-                    self.mutation(enfant)
-                nouvelle_generation.append(enfant)
-
-            # Mettre à jour la population
-            self.fourmis = nouvelle_generation
+            self.fourmis = self._nouvelle_generation(elite, len(self.fourmis))
 
             # Réinitialiser les fourmis pour l'évaluation suivante
             for fourmi in self.fourmis:
-                fourmi.initialiser_position(self.nid)
-                fourmi.chemin_parcouru = [self.nid]
+                fourmi.repartir_du_nid(self.nid)
                 fourmi.reinitialiser_stats()
 
         # Marquer que l'algorithme génétique a été appliqué
@@ -292,24 +223,41 @@ class Civilisation:
                 fourmi.gamma = self.meilleure_fourmi.gamma
 
                 # Réinitialiser pour la simulation
-                fourmi.initialiser_position(self.nid)
-                fourmi.chemin_parcouru = [self.nid]
-                fourmi.chemin_retour = []
-                fourmi.porte_nourriture = False
-                fourmi.delai_initial = random.randint(
-                    0, 15
-                )  # Délai pour départ progressif
-            self.meilleure_fourmi.performance_score = (
-                self.meilleure_fourmi.performance_score
-            )
+                fourmi.reinitialiser_au_nid(self.nid)
+                # Délai pour départ progressif
+                fourmi.delai_initial = random.randint(0, 15)
+
+    def _nouvelle_generation(self, elite: List[Ant], taille: int) -> List[Ant]:
+        """Construit une génération à partir de l'élite (conservée telle quelle)"""
+        nouvelle_generation = [copy.deepcopy(f) for f in elite]
+
+        # Compléter la population
+        while len(nouvelle_generation) < taille:
+            if random.random() < 0.3:  # 30% chance de croisement
+                parent1 = random.choice(elite)
+                parent2 = random.choice(elite)
+                enfant = self.croisement(parent1, parent2)
+                if random.random() < 0.1:  # 10% chance de mutation après croisement
+                    self.mutation(enfant)
+            else:  # 70% chance de mutation
+                modele = random.choice(elite)
+                enfant = copy.deepcopy(modele)
+                self.mutation(enfant)
+            nouvelle_generation.append(enfant)
+
+        return nouvelle_generation
+
+    # ------------------------------------------------------------------
+    # Simulation
+    # ------------------------------------------------------------------
 
     def tour_suivant(self):
         """Effectue un tour de simulation. Retourne les actions effectuées et le meilleur chemin trouvé."""
         self.iteration += 1
         actions_effectuees = False
 
-        chemins_valides = []
-        distances_chemins = []
+        # Chemins complets (nid -> nourriture) trouvés pendant ce tour, avec leur distance
+        chemins_valides: List[Tuple[List[Ville], float]] = []
 
         # Mise à jour des positions des fourmis
         for fourmi in self.fourmis:
@@ -319,193 +267,116 @@ class Civilisation:
                 continue
 
             if fourmi.en_deplacement:
-                est_arrivee = fourmi.mettre_a_jour_position()
-                if est_arrivee:
+                if fourmi.mettre_a_jour_position():
                     actions_effectuees = True
-                    fourmi.en_deplacement = False
-                    fourmi.ville_actuelle = fourmi.ville_destination
-                    fourmi.progress = 0.0
-
-                    # Arrivée à la source de nourriture
-                    if (
-                        fourmi.ville_actuelle == self.src_nourriture
-                        and not fourmi.porte_nourriture
-                    ):
-                        # La fourmi trouve de la nourriture
-                        fourmi.porte_nourriture = True
-                        # Inverser le chemin parcouru pour le retour
-                        fourmi.chemin_retour = list(
-                            reversed(fourmi.chemin_parcouru[1:])
-                        )
-
-                        # CORRECTION IMPORTANTE: Évaluer le chemin pour les phéromones
-                        if len(fourmi.chemin_parcouru) > 1:
-                            distance = self.calculer_distance_chemin(
-                                fourmi.chemin_parcouru
-                            )
-                            if distance < float("inf"):
-                                chemins_valides.append(fourmi.chemin_parcouru.copy())
-                                distances_chemins.append(distance)
-                                fourmi.chemins_uniques.add(
-                                    tuple(fourmi.chemin_parcouru)
-                                )
-                                if distance < self.meilleure_distance:
-                                    self.meilleure_distance = distance
-                                    self.meilleur_chemin = fourmi.chemin_parcouru.copy()
-
-                        # CORRECTION CRITIQUE: S'assurer que la fourmi commence immédiatement son trajet retour
-                        if fourmi.chemin_retour:
-                            # Obtenir la première ville du chemin de retour
-                            prochaine_ville = fourmi.chemin_retour.pop(0)
-                            # Démarrer le déplacement vers cette ville
-                            fourmi.demarrer_deplacement(prochaine_ville)
-                        continue  # Passer à la fourmi suivante après avoir démarré le retour
-
-                    # Si la fourmi revient au nid ET porte de la nourriture
-                    elif fourmi.ville_actuelle == self.nid and fourmi.porte_nourriture:
-                        # La fourmi est revenue au nid - UNIQUEMENT ICI on réinitialise porte_nourriture
-                        fourmi.qte_nourriture_collectee += 1
-                        fourmi.porte_nourriture = (
-                            False  # Réinitialisation seulement au nid
-                        )
-
-                        # Réinitialiser pour un nouveau trajet
-                        fourmi.chemin_parcouru = [self.nid]
-                        fourmi.chemin_retour = []
-
-                        # Sélectionner une nouvelle destination immédiatement
-                        result = fourmi.selectionner_prochaine_ville(
-                            fourmi.ville_actuelle.routes
-                        )
-                        if result:
-                            ville, route = result
-                            fourmi.demarrer_deplacement(ville)
-                            fourmi.chemin_parcouru.append(ville)
-                        continue  # Passer à la fourmi suivante
-
-                    # Si la fourmi est en chemin de retour et porte TOUJOURS de la nourriture
-                    elif fourmi.porte_nourriture:
-                        # Continuer le trajet de retour si des villes restent
-                        if fourmi.chemin_retour:
-                            prochaine_ville = fourmi.chemin_retour.pop(0)
-                            fourmi.demarrer_deplacement(prochaine_ville)
-                        else:
-                            # Si c'est la dernière étape avant le nid, se diriger vers le nid
-                            for route in fourmi.ville_actuelle.routes:
-                                destination = route.autre_extremite(fourmi.ville_actuelle)
-                                if destination == self.nid:
-                                    fourmi.demarrer_deplacement(self.nid)
-                                    break
-                        continue  # Passer à la fourmi suivante
-
-                    # Si la fourmi est en exploration normale (sans nourriture)
-                    else:
-                        # La fourmi continue son exploration
-                        result = fourmi.selectionner_prochaine_ville(
-                            fourmi.ville_actuelle.routes
-                        )
-                        if result:
-                            ville, route = result
-                            fourmi.demarrer_deplacement(ville)
-                            fourmi.chemin_parcouru.append(ville)
-                        else:
-                            # Réinitialiser si bloquée
-                            fourmi.initialiser_position(self.nid)
-                            fourmi.chemin_parcouru = [self.nid]
-                            fourmi.porte_nourriture = False
-
-                continue  # Continue à la prochaine fourmi si en déplacement
-
-            # Pour les fourmis immobiles
-
-            # Vérifier si une fourmi immobile est à la source de nourriture
-            if (
-                fourmi.ville_actuelle == self.src_nourriture
-                and not fourmi.en_deplacement
-                and not fourmi.porte_nourriture
-            ):
-                # Forcer la collecte de nourriture et le départ
-                fourmi.porte_nourriture = True
-                fourmi.chemin_retour = list(reversed(fourmi.chemin_parcouru[1:]))
-
-                # S'assurer qu'elle démarre le retour
-                if fourmi.chemin_retour:
-                    prochaine_ville = fourmi.chemin_retour.pop(0)
-                    fourmi.demarrer_deplacement(prochaine_ville)
-                    actions_effectuees = True
-                continue  # Passer à la fourmi suivante
-
-            # Gérer une fourmi immobile avec de la nourriture (en chemin de retour)
-            if fourmi.porte_nourriture and not fourmi.en_deplacement:
-                # Si la fourmi est au nid avec de la nourriture, la déposer
-                if fourmi.ville_actuelle == self.nid:
-                    fourmi.qte_nourriture_collectee += 1
-                    fourmi.porte_nourriture = False
-                    fourmi.chemin_parcouru = [self.nid]
-                    fourmi.chemin_retour = []
-
-                    # Sélectionner une nouvelle destination
-                    result = fourmi.selectionner_prochaine_ville(
-                        fourmi.ville_actuelle.routes
-                    )
-                    if result:
-                        ville, route = result
-                        fourmi.demarrer_deplacement(ville)
-                        fourmi.chemin_parcouru.append(ville)
-                    actions_effectuees = True
-                    continue
-
-                # Sinon continuer le chemin de retour
-                if fourmi.chemin_retour:
-                    prochaine_ville = fourmi.chemin_retour.pop(0)
-                    fourmi.demarrer_deplacement(prochaine_ville)
-                else:
-                    # Si plus de villes dans le chemin de retour, diriger vers le nid
-                    for route in fourmi.ville_actuelle.routes:
-                        destination = route.autre_extremite(fourmi.ville_actuelle)
-                        if destination == self.nid:
-                            fourmi.demarrer_deplacement(self.nid)
-                            break
+                    self._traiter_arrivee(fourmi, chemins_valides)
+            elif self._deplacer_fourmi_immobile(fourmi):
                 actions_effectuees = True
-                continue
 
-            # Gérer une fourmi immobile en exploration (sans nourriture)
-            if not fourmi.porte_nourriture and not fourmi.en_deplacement:
-                # Sélection de la prochaine destination pour exploration
-                result = fourmi.selectionner_prochaine_ville(
-                    fourmi.ville_actuelle.routes
-                )
-                if result:
-                    ville, route = result
-                    fourmi.demarrer_deplacement(ville)
-                    fourmi.chemin_parcouru.append(ville)
-                    actions_effectuees = True
+        self._mettre_a_jour_pheromones(chemins_valides)
+        self._mettre_a_jour_meilleure_fourmi()
+        return actions_effectuees, self.meilleur_chemin, self.meilleure_distance
 
-        # Évaporation des phéromones
+    def _traiter_arrivee(
+        self, fourmi: Ant, chemins_valides: List[Tuple[List[Ville], float]]
+    ):
+        """Gère une fourmi qui vient d'atteindre sa ville de destination"""
+        fourmi.en_deplacement = False
+        fourmi.ville_actuelle = fourmi.ville_destination
+        fourmi.progress = 0.0
+
+        # Arrivée à la source de nourriture
+        if fourmi.ville_actuelle == self.src_nourriture and not fourmi.porte_nourriture:
+            fourmi.charger_nourriture()
+            # Évaluer le chemin pour les phéromones
+            self._enregistrer_chemin(fourmi, chemins_valides)
+            # La fourmi commence immédiatement son trajet retour
+            if fourmi.chemin_retour:
+                fourmi.demarrer_deplacement(fourmi.chemin_retour.pop(0))
+
+        # Retour au nid avec de la nourriture : seul endroit où elle est déposée
+        elif fourmi.ville_actuelle == self.nid and fourmi.porte_nourriture:
+            fourmi.deposer_nourriture(self.nid)
+            fourmi.explorer()
+
+        # En chemin de retour avec de la nourriture
+        elif fourmi.porte_nourriture:
+            self._poursuivre_retour(fourmi)
+
+        # Exploration normale : réinitialiser si bloquée
+        elif not fourmi.explorer():
+            fourmi.repartir_du_nid(self.nid)
+            fourmi.porte_nourriture = False
+
+    def _deplacer_fourmi_immobile(self, fourmi: Ant) -> bool:
+        """Fait repartir une fourmi immobile. Retourne True si une action a eu lieu."""
+        # Fourmi immobile à la source de nourriture : forcer la collecte et le départ
+        if fourmi.ville_actuelle == self.src_nourriture and not fourmi.porte_nourriture:
+            fourmi.charger_nourriture()
+            if fourmi.chemin_retour:
+                fourmi.demarrer_deplacement(fourmi.chemin_retour.pop(0))
+                return True
+            return False
+
+        # Fourmi immobile avec de la nourriture (en chemin de retour)
+        if fourmi.porte_nourriture:
+            if fourmi.ville_actuelle == self.nid:
+                fourmi.deposer_nourriture(self.nid)
+                fourmi.explorer()
+            else:
+                self._poursuivre_retour(fourmi)
+            return True
+
+        # Fourmi immobile en exploration (sans nourriture)
+        return fourmi.explorer()
+
+    def _poursuivre_retour(self, fourmi: Ant):
+        """Avance d'une étape sur le chemin retour, ou se dirige vers le nid s'il est voisin"""
+        if fourmi.chemin_retour:
+            fourmi.demarrer_deplacement(fourmi.chemin_retour.pop(0))
+        elif fourmi.est_reliee_a(self.nid):
+            fourmi.demarrer_deplacement(self.nid)
+
+    def _enregistrer_chemin(
+        self, fourmi: Ant, chemins_valides: List[Tuple[List[Ville], float]]
+    ):
+        """Enregistre le chemin aller de la fourmi et met à jour le meilleur chemin"""
+        if len(fourmi.chemin_parcouru) <= 1:
+            return
+
+        distance = self.calculer_distance_chemin(fourmi.chemin_parcouru)
+        if distance < float("inf"):
+            chemins_valides.append((fourmi.chemin_parcouru.copy(), distance))
+            fourmi.chemins_uniques.add(tuple(fourmi.chemin_parcouru))
+            if distance < self.meilleure_distance:
+                self.meilleure_distance = distance
+                self.meilleur_chemin = fourmi.chemin_parcouru.copy()
+
+    def _mettre_a_jour_pheromones(
+        self, chemins_valides: List[Tuple[List[Ville], float]]
+    ):
+        """Évaporation puis dépôt de phéromones (chemins du tour + renfort élitiste)"""
         for route in self.routes:
             route.evaporer_pheromone(self.taux_evaporation)
 
-        # Dépôt de phéromones
-        for chemin, distance in zip(chemins_valides, distances_chemins):
-            # Augmenter le dépôt pour les plus courts chemins
+        # Augmenter le dépôt pour les plus courts chemins
+        for chemin, distance in chemins_valides:
             depot = (self.Q / distance) * 1.5  # Facteur de renforcement
             self.deposer_pheromone(chemin, depot)
 
         # Renforcement élitiste encore plus fort
         if self.meilleur_chemin:
-            depot_elite = (
-                self.Q / self.meilleure_distance
-            ) * 2.0  # Renforcement supplémentaire
+            depot_elite = (self.Q / self.meilleure_distance) * 2.0
             self.deposer_pheromone(self.meilleur_chemin, depot_elite)
+
+    def _mettre_a_jour_meilleure_fourmi(self):
         for fourmi in self.fourmis:
             fourmi.mettre_a_jour_performance()
-            # Mettre à jour la meilleure fourmi si nécessaire
             if (
                 not self.meilleure_fourmi
                 or fourmi.performance_score > self.meilleure_fourmi.performance_score
             ):
                 self.meilleure_fourmi = copy.deepcopy(fourmi)
-        return actions_effectuees, self.meilleur_chemin, self.meilleure_distance
 
     def deposer_pheromone(self, chemin: List[Ville], depot: float):
         """Dépose `depot` phéromones sur chaque route du chemin"""
@@ -519,11 +390,9 @@ class Civilisation:
             return float("inf")
 
         distance = 0
-        for i in range(len(chemin) - 1):
-            v1, v2 = chemin[i], chemin[i + 1]
+        for v1, v2 in zip(chemin, chemin[1:]):
             route = self.trouver_route(v1, v2)
-            if route:
-                distance += route.longueur
-            else:
+            if route is None:
                 return float("inf")
+            distance += route.longueur
         return distance
