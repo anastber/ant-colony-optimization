@@ -4,6 +4,12 @@ import math
 import random
 from typing import List, Optional, Tuple
 
+from .config import (
+    PIXELS_PAR_ITERATION_MAX,
+    PIXELS_PAR_ITERATION_MIN,
+    VITESSE_MAX,
+    VITESSE_PAR_DEFAUT,
+)
 from .models import Route, Ville
 
 
@@ -30,7 +36,7 @@ class Ant:
         self.x = 0  # Position actuelle en x
         self.y = 0  # Position actuelle en y
         self.progress = 0.0  # Progression sur l'arête actuelle (0.0 à 1.0)
-        self.vitesse = 0.02  # Vitesse de déplacement en pixels/itération
+        self.vitesse = VITESSE_PAR_DEFAUT  # Vitesse de déplacement
         self.en_deplacement = False
 
     def initialiser_position(self, ville: Ville):
@@ -146,8 +152,8 @@ class Ant:
             return False
 
         # Vérification de sécurité pour la vitesse
-        if self.vitesse > 0.1:  # Valeur maximale raisonnable
-            self.vitesse = 0.02  # Réinitialiser à une valeur par défaut sûre
+        if self.vitesse > VITESSE_MAX:
+            self.vitesse = VITESSE_PAR_DEFAUT
 
         # Calculer la distance totale entre les deux villes
         distance_totale = math.sqrt(
@@ -156,7 +162,9 @@ class Ant:
         )
 
         # Calculer le pas de déplacement en pixels par itération (vitesse constante en pixels)
-        pixels_par_iteration = max(1, min(3, self.vitesse * 100))
+        pixels_par_iteration = max(
+            PIXELS_PAR_ITERATION_MIN, min(PIXELS_PAR_ITERATION_MAX, self.vitesse * 100)
+        )
 
         # Calculer la progression comme un ratio de la distance parcourue
         increment = pixels_par_iteration / max(1, distance_totale)
@@ -186,10 +194,6 @@ class Ant:
         self.ville_destination = ville_destination
         self.en_deplacement = True
         self.progress = 0.0
-
-        # Stocke la position de départ pour l'interpolation
-        self.start_x = self.x
-        self.start_y = self.y
 
     def mettre_a_jour_performance(self):
         """Calcule le score de performance global de la fourmi"""

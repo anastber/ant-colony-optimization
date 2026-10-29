@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .config import PHEROMONE_MIN
+
 
 @dataclass
 class Route:
@@ -15,7 +17,9 @@ class Route:
 
     def evaporer_pheromone(self, taux_evaporation: float):
         """Simulation de l'évaporation de la phéromone"""
-        self.pheromone = max(0.1, (1 - taux_evaporation) * self.pheromone)
+        self.pheromone = max(
+            PHEROMONE_MIN, (1 - taux_evaporation) * self.pheromone
+        )
 
     def autre_extremite(self, ville: "Ville") -> Optional["Ville"]:
         """Retourne la ville située à l'autre bout de la route"""

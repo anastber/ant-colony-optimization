@@ -5,6 +5,7 @@ import math
 import random
 from typing import List, Optional, Tuple
 
+from . import config
 from .ant import Ant
 from .models import Route, Ville
 
@@ -20,8 +21,8 @@ class Civilisation:
         self.fourmis = []
         self.meilleur_chemin = None
         self.meilleure_distance = float("inf")
-        self.taux_evaporation = 0.1
-        self.Q = 100.0
+        self.taux_evaporation = config.TAUX_EVAPORATION
+        self.Q = config.Q
         self.iteration = 0
         self.generation = 0
         self.meilleure_fourmi = None
@@ -67,18 +68,18 @@ class Civilisation:
             # Variation aléatoire autour des paramètres de base
             alpha = alpha_base * (0.5 + random.random())  # ±50% variation
             beta = beta_base * (0.5 + random.random())
-            gamma = random.uniform(-2, 2)
+            gamma = random.uniform(config.GAMMA_MIN, config.GAMMA_MAX)
 
             fourmi = Ant(alpha=alpha, beta=beta, gamma=gamma)
             fourmi.repartir_du_nid(self.nid)
             # Ajouter un délai initial aléatoire pour éviter les départs synchronisés
-            fourmi.delai_initial = random.randint(0, 10)
+            fourmi.delai_initial = random.randint(0, config.DELAI_INITIAL_MAX)
             self.fourmis.append(fourmi)
 
         self.iteration = 0
         self.generation = 0
 
-    def evaluer_population(self, iterations_test=50):
+    def evaluer_population(self, iterations_test=config.ITERATIONS_EVALUATION):
         """Évalue la performance des fourmis sur un nombre limité d'itérations"""
         # Sauvegarde des valeurs actuelles
         iterations_orig = self.iteration
@@ -164,10 +165,13 @@ class Civilisation:
     def mutation(self, fourmi: Ant):
         """Applique une mutation aux paramètres de la fourmi"""
         # Mutations avec intensité variable
-        intensite = random.random() * 0.4 + 0.8  # 80-120% du paramètre original
+        intensite = (
+            random.random() * config.MUTATION_INTENSITE_AMPLITUDE
+            + config.MUTATION_INTENSITE_MIN
+        )  # 80-120% du paramètre original
         fourmi.alpha *= intensite
         fourmi.beta *= intensite
-        fourmi.gamma += random.uniform(-0.5, 0.5)
+        fourmi.gamma += random.uniform(-config.MUTATION_GAMMA, config.MUTATION_GAMMA)
 
     def croisement(self, parent1: Ant, parent2: Ant) -> Ant:
         """Crée une nouvelle fourmi en combinant les paramètres de deux parents"""
@@ -203,7 +207,9 @@ class Civilisation:
                 self.meilleure_fourmi = copy.deepcopy(self.fourmis[0])
 
             # Sélectionner l'élite (20% meilleurs) et créer la nouvelle génération
-            nb_elite = max(2, len(self.fourmis) // 5)
+            nb_elite = max(
+                config.TAILLE_ELITE_MIN, len(self.fourmis) // config.PROPORTION_ELITE
+            )
             elite = self.fourmis[:nb_elite]
             self.fourmis = self._nouvelle_generation(elite, len(self.fourmis))
 
@@ -225,7 +231,9 @@ class Civilisation:
                 # Réinitialiser pour la simulation
                 fourmi.reinitialiser_au_nid(self.nid)
                 # Délai pour départ progressif
-                fourmi.delai_initial = random.randint(0, 15)
+                fourmi.delai_initial = random.randint(
+                    0, config.DELAI_POST_GENETIQUE_MAX
+                )
 
     def _nouvelle_generation(self, elite: List[Ant], taille: int) -> List[Ant]:
         """Construit une génération à partir de l'élite (conservée telle quelle)"""
@@ -233,13 +241,13 @@ class Civilisation:
 
         # Compléter la population
         while len(nouvelle_generation) < taille:
-            if random.random() < 0.3:  # 30% chance de croisement
+            if random.random() < config.PROBA_CROISEMENT:
                 parent1 = random.choice(elite)
                 parent2 = random.choice(elite)
                 enfant = self.croisement(parent1, parent2)
-                if random.random() < 0.1:  # 10% chance de mutation après croisement
+                if random.random() < config.PROBA_MUTATION_APRES_CROISEMENT:
                     self.mutation(enfant)
-            else:  # 70% chance de mutation
+            else:  # Sinon, copie mutée d'un membre de l'élite
                 modele = random.choice(elite)
                 enfant = copy.deepcopy(modele)
                 self.mutation(enfant)
@@ -361,12 +369,12 @@ class Civilisation:
 
         # Augmenter le dépôt pour les plus courts chemins
         for chemin, distance in chemins_valides:
-            depot = (self.Q / distance) * 1.5  # Facteur de renforcement
+            depot = (self.Q / distance) * config.FACTEUR_DEPOT
             self.deposer_pheromone(chemin, depot)
 
         # Renforcement élitiste encore plus fort
         if self.meilleur_chemin:
-            depot_elite = (self.Q / self.meilleure_distance) * 2.0
+            depot_elite = (self.Q / self.meilleure_distance) * config.FACTEUR_DEPOT_ELITE
             self.deposer_pheromone(self.meilleur_chemin, depot_elite)
 
     def _mettre_a_jour_meilleure_fourmi(self):
