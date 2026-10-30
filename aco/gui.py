@@ -7,6 +7,9 @@ from tkinter import messagebox, ttk
 
 from .civilisation import Civilisation
 
+DELAI_IMAGE_MS = 33  # ~30 images par seconde
+VITESSE_MAX_SAISIE = 0.05  # Vitesse maximale acceptée depuis le formulaire
+
 
 class ACOVisualizer(tk.Tk):
     """Interface graphique avec support pour l'algorithme génétique"""
@@ -432,19 +435,53 @@ class ACOVisualizer(tk.Tk):
                         )
 
         # Mise à jour des labels de la meilleure fourmi
-        if self.civilisation.meilleure_fourmi:
-            self.best_alpha_label.config(
-                text=f"Alpha: {self.civilisation.meilleure_fourmi.alpha:.2f}"
-            )
-            self.best_beta_label.config(
-                text=f"Beta: {self.civilisation.meilleure_fourmi.beta:.2f}"
-            )
-            self.best_gamma_label.config(
-                text=f"Gamma: {self.civilisation.meilleure_fourmi.gamma:.2f}"
-            )
+        self._maj_labels_meilleure_fourmi()
+
+    def _maj_labels_meilleure_fourmi(self):
+        """Affiche les paramètres de la meilleure fourmi, si elle existe"""
+        meilleure = self.civilisation.meilleure_fourmi
+        if meilleure:
+            self.best_alpha_label.config(text=f"Alpha: {meilleure.alpha:.2f}")
+            self.best_beta_label.config(text=f"Beta: {meilleure.beta:.2f}")
+            self.best_gamma_label.config(text=f"Gamma: {meilleure.gamma:.2f}")
             self.best_score_label.config(
-                text=f"Score: {self.civilisation.meilleure_fourmi.performance_score:.2f}"
+                text=f"Score: {meilleure.performance_score:.2f}"
             )
+
+    def _lire_parametres(self, avec_generations=False):
+        """Lit les paramètres saisis puis applique vitesse et taux d'évaporation.
+
+        Retourne (nb_fourmis, alpha, beta, generations), ou None si un champ est invalide.
+        """
+        try:
+            num_ants = int(self.ant_count.get())
+            alpha = float(self.alpha_var.get())
+            beta = float(self.beta_var.get())
+            generations = int(self.gen_count.get()) if avec_generations else None
+            evap_rate = float(self.evap_var.get())
+            # Limiter la vitesse pour éviter les problèmes
+            vitesse = min(VITESSE_MAX_SAISIE, float(self.speed_var.get()))
+        except ValueError:
+            messagebox.showerror("Erreur", "Paramètres invalides")
+            return None
+
+        self.vitesse_de_base = vitesse
+        self.speed_var.set(str(self.vitesse_de_base))
+        self.speed_slider.set(self.vitesse_de_base)
+        self.civilisation.taux_evaporation = evap_rate
+        return num_ants, alpha, beta, generations
+
+    def _appliquer_vitesse(self):
+        for fourmi in self.civilisation.fourmis:
+            fourmi.vitesse = self.vitesse_de_base
+
+    def _verifier_nid_et_nourriture(self) -> bool:
+        if not self.civilisation.nid or not self.civilisation.src_nourriture:
+            messagebox.showwarning(
+                "Attention", "Définissez d'abord le nid et la source de nourriture!"
+            )
+            return False
+        return True
 
     def apply_genetic_algorithm(self):
         """Applique l'algorithme génétique une seule fois avant la simulation"""
@@ -455,25 +492,13 @@ class ACOVisualizer(tk.Tk):
             )
             return
 
-        if not self.civilisation.nid or not self.civilisation.src_nourriture:
-            messagebox.showwarning(
-                "Attention", "Définissez d'abord le nid et la source de nourriture!"
-            )
+        if not self._verifier_nid_et_nourriture():
             return
 
-        try:
-            num_ants = int(self.ant_count.get())
-            alpha = float(self.alpha_var.get())
-            beta = float(self.beta_var.get())
-            generations = int(self.gen_count.get())
-            evap_rate = float(self.evap_var.get())
-            self.vitesse_de_base = min(0.05, float(self.speed_var.get()))
-            self.speed_var.set(str(self.vitesse_de_base))
-            self.speed_slider.set(self.vitesse_de_base)
-            self.civilisation.taux_evaporation = evap_rate
-        except ValueError:
-            messagebox.showerror("Erreur", "Paramètres invalides")
+        parametres = self._lire_parametres(avec_generations=True)
+        if parametres is None:
             return
+        num_ants, alpha, beta, generations = parametres
 
         # Afficher qu'on lance l'optimisation
         self.info_label.config(text="Optimisation génétique en cours...")
@@ -484,27 +509,14 @@ class ACOVisualizer(tk.Tk):
             self.civilisation.initialiser_fourmis(num_ants, alpha, beta)
 
         # Mise à jour de la vitesse des fourmis
-        for fourmi in self.civilisation.fourmis:
-            fourmi.vitesse = self.vitesse_de_base
+        self._appliquer_vitesse()
 
         # Appliquer l'algorithme génétique
         self.civilisation.algorithme_genetique(generations)
 
         # Mettre à jour les statistiques
         self.gen_label.config(text=f"Génération: {self.civilisation.generation}")
-        if self.civilisation.meilleure_fourmi:
-            self.best_alpha_label.config(
-                text=f"Alpha: {self.civilisation.meilleure_fourmi.alpha:.2f}"
-            )
-            self.best_beta_label.config(
-                text=f"Beta: {self.civilisation.meilleure_fourmi.beta:.2f}"
-            )
-            self.best_gamma_label.config(
-                text=f"Gamma: {self.civilisation.meilleure_fourmi.gamma:.2f}"
-            )
-            self.best_score_label.config(
-                text=f"Score: {self.civilisation.meilleure_fourmi.performance_score:.2f}"
-            )
+        self._maj_labels_meilleure_fourmi()
 
         # Informer que l'optimisation est terminée
         self.info_label.config(
@@ -516,27 +528,13 @@ class ACOVisualizer(tk.Tk):
 
     def toggle_simulation(self):
         if not self.simulation_running:
-            if not self.civilisation.nid or not self.civilisation.src_nourriture:
-                messagebox.showwarning(
-                    "Attention", "Définissez d'abord le nid et la source de nourriture!"
-                )
+            if not self._verifier_nid_et_nourriture():
                 return
 
-            try:
-                num_ants = int(self.ant_count.get())
-                alpha = float(self.alpha_var.get())
-                beta = float(self.beta_var.get())
-                evap_rate = float(self.evap_var.get())
-
-                # Limiter la vitesse pour éviter les problèmes
-                self.vitesse_de_base = min(0.05, float(self.speed_var.get()))
-                self.speed_var.set(str(self.vitesse_de_base))
-                self.speed_slider.set(self.vitesse_de_base)
-
-                self.civilisation.taux_evaporation = evap_rate
-            except ValueError:
-                messagebox.showerror("Erreur", "Paramètres invalides")
+            parametres = self._lire_parametres()
+            if parametres is None:
                 return
+            num_ants, alpha, beta, _ = parametres
 
             self.simulation_running = True
             self.animation_counter = 0
@@ -556,8 +554,7 @@ class ACOVisualizer(tk.Tk):
                     self.apply_genetic_algorithm()
 
             # Application de la vitesse à toutes les fourmis
-            for fourmi in self.civilisation.fourmis:
-                fourmi.vitesse = self.vitesse_de_base
+            self._appliquer_vitesse()
 
             self.update_simulation()
         else:
@@ -572,7 +569,7 @@ class ACOVisualizer(tk.Tk):
         if self.post_genetic_delay > 0:
             self.post_genetic_delay -= 1
             self.redraw()  # Juste redessiner sans mettre à jour la simulation
-            self.after(33, self.update_simulation)
+            self.after(DELAI_IMAGE_MS, self.update_simulation)
             return
 
         # Exécuter la logique de simulation
@@ -612,7 +609,7 @@ class ACOVisualizer(tk.Tk):
         self.redraw()
 
         # Animation toujours fluide à 30 FPS
-        self.after(33, self.update_simulation)
+        self.after(DELAI_IMAGE_MS, self.update_simulation)
 
     def reset_simulation(self):
         """Réinitialise complètement la simulation"""
