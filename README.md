@@ -22,7 +22,6 @@ Simulation visuelle d'optimisation par colonie de fourmis (ACO) combinée avec d
 - Python 3.7+
 - Tkinter (pour l'interface graphique)
 - Matplotlib (pour les tests et visualisations)
-- NumPy (pour certaines opérations mathématiques)
 
 ### Étapes d'installation
 
@@ -32,9 +31,25 @@ git clone https://github.com/anastber/ant-colony-optimization
 cd ant-colony-optimization
 
 # 2. Installer les dépendances (si nécessaire)
-pip install matplotlib numpy
+pip install -r requirements.txt
 # Tkinter est inclus avec Python par défaut
 
 # 3. Lancer l'application
 python Rendu_ACO.py
+
+# 4. (Optionnel) Lancer les tests, qui génèrent les graphiques .png
+python tests.py
+```
+
+## Structure du projet
+
+```
+aco/
+├── models.py        # Ville et Route (structure du graphe)
+├── ant.py           # Fourmi : sélection de la prochaine ville, déplacement
+├── civilisation.py  # Simulation, phéromones et algorithme génétique
+├── config.py        # Paramètres par défaut
+└── gui.py           # Interface Tkinter
+Rendu_ACO.py         # Point d'entrée (lance l'interface)
+tests.py             # Scénarios de test (graphe circulaire, graphe avec pièges)
 ```
