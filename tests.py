@@ -1,13 +1,11 @@
-import copy
 import math
 import random
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 # Importer les classes de Rendu_ACO.py
 try:
-    from Rendu_ACO import Ant, Civilisation, Route, Ville
+    from Rendu_ACO import Civilisation
 except ImportError:
     print("ERREUR: Impossible de trouver ou d'importer le fichier Rendu_ACO.py")
     print(
@@ -16,99 +14,51 @@ except ImportError:
     exit(1)
 
 
-def test_cercle_complexe():
-    """
-    Test avec un graphe circulaire plus complexe
-    """
-    print("\n----- Test sur graphe circulaire complexe -----")
+def formater_chemin(chemin):
+    return " -> ".join(str(ville.id) for ville in chemin)
 
-    # Créer une instance de Civilisation
-    civ = Civilisation()
 
-    # Créer un graphe circulaire avec des raccourcis
-    villes = []
-    rayon = 200
-    centre_x, centre_y = 300, 300
-    nb_villes = 8
-
-    for i in range(nb_villes):
-        angle = 2 * math.pi * i / nb_villes
-        x = centre_x + rayon * math.cos(angle)
-        y = centre_y + rayon * math.sin(angle)
-        ville = civ.ajouter_ville(int(x), int(y))
-        villes.append(ville)
-
-    # Créer des routes entre villes adjacentes (forme un cercle)
-    for i in range(nb_villes):
-        civ.ajouter_route(villes[i], villes[(i + 1) % nb_villes])
-
-    # Ajouter des routes diagonales (chemins alternatifs)
-    for i in range(nb_villes):
-        civ.ajouter_route(villes[i], villes[(i + 2) % nb_villes])
-        # Ajouter encore plus de connexions pour rendre le problème plus complexe
-        civ.ajouter_route(villes[i], villes[(i + 3) % nb_villes])
-
-    # Définir le nid et la source de nourriture
-    civ.nid = villes[0]
-    civ.src_nourriture = villes[nb_villes // 2]  # À l'opposé du nid
-
-    # Initialiser les fourmis avec des valeurs par défaut
-    nb_fourmis = 30
+def initialiser_et_optimiser(civ, nb_fourmis=30, generations=5):
+    """Crée la population, applique l'algorithme génétique et prépare la simulation"""
     civ.initialiser_fourmis(nb_fourmis, alpha_base=1.0, beta_base=2.0)
-
-    # Définir le taux d'évaporation
     civ.taux_evaporation = 0.1
 
-    # Appliquer l'algorithme génétique
     print("Application de l'algorithme génétique...")
-    civ.algorithme_genetique(generations=5)
+    civ.algorithme_genetique(generations=generations)
 
-    # Si une meilleure fourmi a été identifiée
-    if civ.meilleure_fourmi:
-        print("\nParamètres de la meilleure fourmi:")
-        print(f"Alpha: {civ.meilleure_fourmi.alpha:.2f}")
-        print(f"Beta: {civ.meilleure_fourmi.beta:.2f}")
-        print(f"Gamma: {civ.meilleure_fourmi.gamma:.2f}")
 
-    # Réinitialiser les statistiques pour la simulation
+def reinitialiser_fourmis(civ):
+    """Replace toutes les fourmis au nid avant la simulation"""
     for fourmi in civ.fourmis:
-        fourmi.initialiser_position(civ.nid)
-        fourmi.chemin_parcouru = [civ.nid]
-        fourmi.chemin_retour = []
-        fourmi.porte_nourriture = False
+        fourmi.reinitialiser_au_nid(civ.nid)
         fourmi.delai_initial = random.randint(0, 10)
 
-    # Stocker les données pour le suivi
-    iterations = []
-    distances = []
 
-    # Exécuter la simulation
+def executer_simulation(civ, nb_iterations, intervalle_affichage, apres_tour=None):
+    """Exécute la simulation en affichant régulièrement le meilleur chemin"""
     print("\nExécution de la simulation...")
-    nb_iterations = 15000
 
     for i in range(nb_iterations):
-        actions_effectuees, meilleur_chemin, meilleure_distance = civ.tour_suivant()
+        _, meilleur_chemin, meilleure_distance = civ.tour_suivant()
 
-        iterations.append(i)
-        distances.append(
-            meilleure_distance if meilleure_distance != float("inf") else None
-        )
+        if apres_tour:
+            apres_tour(civ)
 
-        if (i + 1) % 500 == 0:
+        if (i + 1) % intervalle_affichage == 0:
             print(f"Itération {i+1}:")
             if meilleur_chemin:
-                chemin_ids = [ville.id for ville in meilleur_chemin]
-                print(f"  Meilleur chemin: {' -> '.join(map(str, chemin_ids))}")
+                print(f"  Meilleur chemin: {formater_chemin(meilleur_chemin)}")
                 print(f"  Distance: {meilleure_distance}")
 
     if civ.meilleur_chemin:
-        chemin_ids = [ville.id for ville in civ.meilleur_chemin]
-        print(f"Meilleur chemin: {' -> '.join(map(str, chemin_ids))}")
+        print(f"Meilleur chemin: {formater_chemin(civ.meilleur_chemin)}")
         print(f"Distance: {civ.meilleure_distance}")
     else:
         print("Aucun chemin trouvé!")
 
-    # Visualiser uniquement le graphe et le meilleur chemin
+
+def tracer_graphe(civ, titre, fichier, pieges=()):
+    """Sauvegarde une image du graphe avec le meilleur chemin (et les pièges éventuels)"""
     plt.figure(figsize=(10, 8))
 
     # Tracer toutes les routes
@@ -129,25 +79,79 @@ def test_cercle_complexe():
             plt.plot(ville.x, ville.y, "yo", markersize=10)  # Nid en jaune
         elif ville == civ.src_nourriture:
             plt.plot(ville.x, ville.y, "go", markersize=10)  # Nourriture en vert
+        elif ville.id in pieges:
+            plt.plot(ville.x, ville.y, "ro", markersize=8)  # Pièges en rouge
         else:
             plt.plot(ville.x, ville.y, "bo", markersize=8)  # Autres villes en bleu
         plt.text(ville.x + 5, ville.y + 5, str(ville.id))  # Ajouter IDs
 
-    plt.title("Visualisation du graphe circulaire et du meilleur chemin")
+    plt.title(titre)
     plt.axis("equal")
 
     # Ajouter une légende
     plt.plot([], [], "yo", markersize=10, label="Nid")
     plt.plot([], [], "go", markersize=10, label="Nourriture")
     plt.plot([], [], "bo", markersize=8, label="Villes")
+    if pieges:
+        plt.plot([], [], "ro", markersize=8, label="Pièges")
     plt.plot([], [], "r-", linewidth=2, label="Meilleur chemin")
     plt.legend(loc="upper left", bbox_to_anchor=(1, 1))
 
     # Ajuster la mise en page et sauvegarder
     plt.tight_layout()
-    plt.savefig("graphe_cercle_complexe.png")
+    plt.savefig(fichier)
     plt.close()
 
+
+def test_cercle_complexe():
+    """
+    Test avec un graphe circulaire plus complexe
+    """
+    print("\n----- Test sur graphe circulaire complexe -----")
+
+    civ = Civilisation()
+
+    # Créer un graphe circulaire avec des raccourcis
+    villes = []
+    rayon = 200
+    centre_x, centre_y = 300, 300
+    nb_villes = 8
+
+    for i in range(nb_villes):
+        angle = 2 * math.pi * i / nb_villes
+        x = centre_x + rayon * math.cos(angle)
+        y = centre_y + rayon * math.sin(angle)
+        villes.append(civ.ajouter_ville(int(x), int(y)))
+
+    # Créer des routes entre villes adjacentes (forme un cercle)
+    for i in range(nb_villes):
+        civ.ajouter_route(villes[i], villes[(i + 1) % nb_villes])
+
+    # Ajouter des routes diagonales (chemins alternatifs)
+    for i in range(nb_villes):
+        civ.ajouter_route(villes[i], villes[(i + 2) % nb_villes])
+        civ.ajouter_route(villes[i], villes[(i + 3) % nb_villes])
+
+    # Définir le nid et la source de nourriture
+    civ.nid = villes[0]
+    civ.src_nourriture = villes[nb_villes // 2]  # À l'opposé du nid
+
+    initialiser_et_optimiser(civ)
+
+    if civ.meilleure_fourmi:
+        print("\nParamètres de la meilleure fourmi:")
+        print(f"Alpha: {civ.meilleure_fourmi.alpha:.2f}")
+        print(f"Beta: {civ.meilleure_fourmi.beta:.2f}")
+        print(f"Gamma: {civ.meilleure_fourmi.gamma:.2f}")
+
+    reinitialiser_fourmis(civ)
+    executer_simulation(civ, nb_iterations=15000, intervalle_affichage=500)
+
+    tracer_graphe(
+        civ,
+        "Visualisation du graphe circulaire et du meilleur chemin",
+        "graphe_cercle_complexe.png",
+    )
     return civ
 
 
@@ -157,17 +161,14 @@ def test_graphe_pieges():
     """
     print("\n----- Test sur graphe avec pièges -----")
 
-    # Créer une instance de Civilisation
     civ = Civilisation()
 
     # Créer la grille principale
     nb_lignes, nb_colonnes = 5, 5
-    villes = [[None for _ in range(nb_colonnes)] for _ in range(nb_lignes)]
-
-    # Créer les villes en grille
-    for i in range(nb_lignes):
-        for j in range(nb_colonnes):
-            villes[i][j] = civ.ajouter_ville(100 + j * 100, 100 + i * 100)
+    villes = [
+        [civ.ajouter_ville(100 + j * 100, 100 + i * 100) for j in range(nb_colonnes)]
+        for i in range(nb_lignes)
+    ]
 
     # Créer les routes de base (horizontales et verticales)
     for i in range(nb_lignes):
@@ -181,124 +182,43 @@ def test_graphe_pieges():
     civ.nid = villes[0][0]  # Coin supérieur gauche
     civ.src_nourriture = villes[nb_lignes - 1][nb_colonnes - 1]  # Coin inférieur droit
 
-    # Créer des pièges - Tous sous forme d'impasses
-    # Créer des villes de piège
-    ville_piege1 = civ.ajouter_ville(250, 250)  # Entre (1,1) et (2,2) - Impasse
-    ville_piege2 = civ.ajouter_ville(350, 350)  # Entre (2,2) et (3,3) - Impasse
-    ville_piege3 = civ.ajouter_ville(450, 250)  # Proche de (2,4) - Déjà une impasse
+    # Créer des pièges sous forme d'impasses, reliés à un seul point de la grille
+    ville_piege1 = civ.ajouter_ville(250, 250)  # Entre (1,1) et (2,2)
+    ville_piege2 = civ.ajouter_ville(350, 350)  # Entre (2,2) et (3,3)
+    ville_piege3 = civ.ajouter_ville(450, 250)  # Proche de (2,4)
 
-    # Créer des routes qui mènent aux impasses
-    civ.ajouter_route(villes[1][1], ville_piege1)  # Entrée de l'impasse 1
-    civ.ajouter_route(villes[2][2], ville_piege2)  # Entrée de l'impasse 2
-    civ.ajouter_route(villes[2][3], ville_piege3)  # Entrée de l'impasse 3
+    civ.ajouter_route(villes[1][1], ville_piege1)
+    civ.ajouter_route(villes[2][2], ville_piege2)
+    civ.ajouter_route(villes[2][3], ville_piege3)
 
-    # Nous ne relions plus les pièges entre eux ni au reste du graphe pour qu'ils soient de vraies impasses
-
-    # Initialiser les fourmis
-    nb_fourmis = 30
-    civ.initialiser_fourmis(nb_fourmis, alpha_base=1.0, beta_base=2.0)
-    civ.taux_evaporation = 0.1
-
-    # Appliquer l'algorithme génétique
-    print("Application de l'algorithme génétique...")
-    civ.algorithme_genetique(generations=5)
-
-    # Réinitialiser les fourmis pour la simulation
-    for fourmi in civ.fourmis:
-        fourmi.initialiser_position(civ.nid)
-        fourmi.chemin_parcouru = [civ.nid]
-        fourmi.chemin_retour = []
-        fourmi.porte_nourriture = False
-        fourmi.delai_initial = random.randint(0, 10)
-
-    # Stocker les données pour le suivi
-    iterations = []
-    distances = []
+    initialiser_et_optimiser(civ)
+    reinitialiser_fourmis(civ)
 
     # Suivre l'utilisation des pièges
     visites_pieges = {ville_piege1.id: 0, ville_piege2.id: 0, ville_piege3.id: 0}
 
-    # Exécuter la simulation
-    print("\nExécution de la simulation...")
-    nb_iterations = 800
-
-    for i in range(nb_iterations):
-        actions_effectuees, meilleur_chemin, meilleure_distance = civ.tour_suivant()
-
-        # Collecter les statistiques standard
-        iterations.append(i)
-        distances.append(
-            meilleure_distance if meilleure_distance != float("inf") else None
-        )
-
-        # Compter les fourmis qui sont dans les pièges
+    def compter_visites_pieges(civ):
         for fourmi in civ.fourmis:
-            if fourmi.ville_actuelle:
-                ville_id = fourmi.ville_actuelle.id
-                if ville_id in visites_pieges:
-                    visites_pieges[ville_id] += 1
+            if fourmi.ville_actuelle and fourmi.ville_actuelle.id in visites_pieges:
+                visites_pieges[fourmi.ville_actuelle.id] += 1
 
-        if (i + 1) % 100 == 0:
-            print(f"Itération {i+1}:")
-            if meilleur_chemin:
-                chemin_ids = [ville.id for ville in meilleur_chemin]
-                print(f"  Meilleur chemin: {' -> '.join(map(str, chemin_ids))}")
-                print(f"  Distance: {meilleure_distance}")
-
-    if civ.meilleur_chemin:
-        chemin_ids = [ville.id for ville in civ.meilleur_chemin]
-        print(f"Meilleur chemin: {' -> '.join(map(str, chemin_ids))}")
-        print(f"Distance: {civ.meilleure_distance}")
-    else:
-        print("Aucun chemin trouvé!")
+    executer_simulation(
+        civ,
+        nb_iterations=800,
+        intervalle_affichage=100,
+        apres_tour=compter_visites_pieges,
+    )
 
     print("\nStatistiques des pièges:")
     for ville_id, visites in visites_pieges.items():
         print(f"Ville {ville_id}: {visites} visites")
 
-    # Visualiser uniquement le graphe et le meilleur chemin
-    plt.figure(figsize=(10, 8))
-
-    # Tracer toutes les routes
-    for route in civ.routes:
-        x = [route.premiere_ville.x, route.seconde_ville.x]
-        y = [route.premiere_ville.y, route.seconde_ville.y]
-        plt.plot(x, y, "k-", alpha=0.2)
-
-    # Tracer le meilleur chemin
-    if civ.meilleur_chemin and len(civ.meilleur_chemin) > 1:
-        x_best = [ville.x for ville in civ.meilleur_chemin]
-        y_best = [ville.y for ville in civ.meilleur_chemin]
-        plt.plot(x_best, y_best, "r-", linewidth=2, label="Meilleur chemin")
-
-    # Placer les villes
-    for ville in civ.villes:
-        if ville == civ.nid:
-            plt.plot(ville.x, ville.y, "yo", markersize=10)  # Nid en jaune
-        elif ville == civ.src_nourriture:
-            plt.plot(ville.x, ville.y, "go", markersize=10)  # Nourriture en vert
-        elif ville.id in visites_pieges:
-            plt.plot(ville.x, ville.y, "ro", markersize=8)  # Pièges en rouge
-        else:
-            plt.plot(ville.x, ville.y, "bo", markersize=8)  # Autres villes en bleu
-        plt.text(ville.x + 5, ville.y + 5, str(ville.id))  # Ajouter IDs
-
-    plt.title("Visualisation du graphe avec pièges et meilleur chemin")
-    plt.axis("equal")
-
-    # Ajouter une légende
-    plt.plot([], [], "yo", markersize=10, label="Nid")
-    plt.plot([], [], "go", markersize=10, label="Nourriture")
-    plt.plot([], [], "bo", markersize=8, label="Villes")
-    plt.plot([], [], "ro", markersize=8, label="Pièges")
-    plt.plot([], [], "r-", linewidth=2, label="Meilleur chemin")
-    plt.legend(loc="upper left", bbox_to_anchor=(1, 1))
-
-    # Ajuster la mise en page et sauvegarder
-    plt.tight_layout()
-    plt.savefig("graphe_pieges.png")
-    plt.close()
-
+    tracer_graphe(
+        civ,
+        "Visualisation du graphe avec pièges et meilleur chemin",
+        "graphe_pieges.png",
+        pieges=visites_pieges,
+    )
     return civ
 
 
@@ -308,11 +228,9 @@ if __name__ == "__main__":
     print("Ce script exécute des tests pour vérifier le bon fonctionnement du code.")
 
     try:
-        # Test 1: Graphe circulaire complexe
         print("\nDémarrage du test sur graphe circulaire complexe...")
         civ_cercle = test_cercle_complexe()
 
-        # Test 2: Graphe avec pièges
         print("\nDémarrage du test sur graphe avec pièges...")
         civ_pieges = test_graphe_pieges()
 
